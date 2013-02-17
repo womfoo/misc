@@ -2,6 +2,11 @@
 import Control.Applicative
 import Data.Attoparsec.Text
 import Data.Either
+import Data.Text.Lazy
+import Data.Text.Format
+import Data.Text.Encoding
+import qualified Data.Text.IO as T
+import Network.HTTP.Conduit
 import Text.HTML.DOM as HTML
 import Text.XML.Cursor
 
@@ -21,13 +26,21 @@ currPair = do
   return (curr,amount)
 
 main = do
-  doc <- HTML.readFile "e-remit - Global Money Transfers.html"
-  let cursor = fromDocument doc
-      result =
-        cursor $// element "div"
+  request <- parseUrl "http://www.eremit.com.my/"
+  (date,bs) <- withManager $ \manager -> do
+    Response _ _ headers body <- httpLbs request manager
+    return (lookup "Date" headers,body)
+  let rawrates = fromDocument (HTML.parseLBS bs)
+               $// element "div"
                >=> attributeIs "id" "exchange"
                >=> element "div"
                &// content
+      rates = rights $ Prelude.map (parseOnly currPair) rawrates
+  writeRates date rates
 
-  print $ rights $ map (parseOnly currPair) result
-
+writeRates (Just d) xs =
+  mapM_ (\(c,f) ->
+          T.appendFile "/home/eremit/eremit_rates.txt"
+          (toStrict (format "[{}] {}: {}\n" (decodeUtf8 d,show c,f)))
+        ) xs
+writeRates _ _ = return ()
