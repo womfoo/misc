@@ -7,6 +7,7 @@ import Data.Text.Format
 import Data.Text.Encoding
 import qualified Data.Text.IO as T
 import Network.HTTP.Conduit
+import Network.HTTP.Conduit.Browser
 import Text.HTML.DOM as HTML
 import Text.XML.Cursor
 
@@ -28,8 +29,10 @@ currPair = do
 main = do
   request <- parseUrl "http://www.eremit.com.my/"
   (date,bs) <- withManager $ \manager -> do
-    Response _ _ headers body <- httpLbs request manager
-    return (lookup "Date" headers,body)
+    browse manager $ do
+      setMaxRetryCount 10
+      Response _ _ headers body <- makeRequestLbs request
+      return (lookup "Date" headers,body)
   let rawrates = fromDocument (HTML.parseLBS bs)
                $// element "div"
                >=> attributeIs "id" "exchange"
