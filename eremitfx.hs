@@ -1,8 +1,12 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes       #-}
 import           Control.Applicative
+import           Data.Accessor
 import           Data.Attoparsec.Text
 import           Data.Char
+import           Data.Colour
+import           Data.Colour.Names
+import           Data.Colour.SRGB
 import           Data.Either
 import           Data.List
 import           Data.Maybe
@@ -10,6 +14,7 @@ import qualified Data.Text                     as T
 import qualified Data.Text.IO                  as T
 import           Data.Text.Lazy                (toStrict)
 import           Data.Time
+import           Graphics.Rendering.Chart
 import           System.Locale
 import           Text.Blaze.Html.Renderer.Text (renderHtml)
 import           Text.Hamlet                   (shamlet)
@@ -61,11 +66,16 @@ fxLine = do
   let time' = fromJust $ parseTime defaultTimeLocale "%a, %d %b %Y %H:%M:%S %Z" (T.unpack time)
   return $ Rate time' currency' amount'
 
-readRates = fmap T.lines $ T.readFile "/home/eremit/eremit_rates.txt"
+readRates f = fmap (rights . map (parseOnly fxLine) . T.lines) (T.readFile f)
+
+eremitlog = "/home/eremit/eremit_rates.txt"
+yahoolog  = "/home/eremit/yahoo_myrphp_rates.txt"
 
 main = do
-  logs <- fmap (map (parseOnly fxLine)) readRates
-  let prices = reverse $ list2Pairs $ dedup $ filter isPHP (rights logs)
+  elogs <-readRates eremitlog
+  ylogs <-readRates yahoolog
+  let prices = filter isPHP elogs
+      prices' = reverse $ list2Pairs $ dedup prices
       isPHP x = currency x == PHP
       eqRate x y = amount x == amount y
       dedup xs = concatMap dedup' groupedlist
@@ -73,20 +83,22 @@ main = do
           groupedlist = groupBy eqRate xs
           dedup' (x:[]) = [x]
           dedup' xs' = [minimum xs'] -- add ", maximum xs" for graphing
-  T.writeFile "eremitfx.html" $ toStrict $ renderHtml $ htmlPage prices
+  T.writeFile "eremitfx.html" $ toStrict $ renderHtml $ htmlPage prices' $ timestamp $ last prices
+  renderableToPNGFile (chart prices ylogs) 470 200 "eremitfx.png"
 
-htmlPage (x:xs) = [shamlet|
+
+htmlPage (x:xs) updatetime = [shamlet|
   <html>
     <head>
       <link rel="stylesheet" href="eremitfx.css" type="text/css" />
     <body>
       <div>
         <table>
-          #{pair2Html True x}
+          #{pair2Html True x updatetime}
           $forall x' <- xs
-            #{pair2Html False x'}
+            #{pair2Html False x' updatetime}
         |]
-htmlPage _ = H.toHtml ("invalid input" :: String)
+htmlPage _ _ = H.toHtml ("invalid input" :: String)
 
 list2Pairs list = if length list == 1
                     then []
@@ -96,20 +108,22 @@ list2Pairs list = if length list == 1
     go (x1:x2:xs) = [(x1,x2)] ++ go (x2:xs)
     go _          = []
 
-pair2Html :: Bool -> (Rate,Rate) -> H.Html
-pair2Html isFirst (prev,curr) = [shamlet|$newline never
+pair2Html :: Bool -> (Rate,Rate) -> UTCTime -> H.Html
+pair2Html isFirst (prev,curr) updatetime = [shamlet|$newline never
   $if isFirst
     <tr>
       <td colspan=4>
-        <strong>MYR/PHP
-        &nbsp;eremit - #{timestamp curr}
         <div class="currprice">
+          <strong>MYR = PHP&nbsp;
           #{amount curr}&nbsp;
           $if positive
             <div class="big-arrow-up">
           $else
             <div class="big-arrow-down">
           <div class="#{color}">&nbsp;#{text}
+        <div>
+           <small>since #{timestamp curr} &bull; updated #{updatetime}
+        <div><img src="eremitfx.png">
   $else
     <tr>
       <td><strong>#{val}
@@ -137,3 +151,33 @@ pair2Html isFirst (prev,curr) = [shamlet|$newline never
     day = showTime dayFormat (timestamp curr)
     time = showTime timeFormat (timestamp curr)
     pctsign = [chr 37]
+
+chart :: [Rate] -> [Rate] -> Renderable ()
+chart lrate rrate = toRenderable layout
+  where
+
+    lineStyle c = line_width ^= 2
+                $ line_color ^= c
+                $ defaultPlotLines ^. plot_lines_style
+
+    price1 = plot_lines_style ^= lineStyle (opaque (sRGB24read "#7aa6da")) -- blue
+           $ plot_lines_values ^= [[ (utcToLocalTime tzMYT u, a) | Rate u _ a <- lrate]]
+           $ plot_lines_title ^= "eremit"
+           $ defaultPlotLines
+
+    price2 = plot_lines_style ^= lineStyle (opaque (sRGB24read "#e78c45")) --orange
+           $ plot_lines_values ^= [[ (utcToLocalTime tzMYT u, a) | Rate u _ a <- rrate]]
+           $ plot_lines_title ^= "yahoo"
+           $ defaultPlotLines
+
+    bg = transparent
+    fg = opaque white
+    fg1 = opaque black
+
+    layout = layout1_background ^= solidFillStyle bg
+           $ updateAllAxesStyles (axis_grid_style ^= solidLine 1 fg1)
+           $ layout1_bottom_axis ^: laxis_override ^= axisGridHide
+ 	   $ layout1_plots ^= [Left (toPlot price1), Left (toPlot price2)]
+           $ layout1_grid_last ^= False
+           $ setLayout1Foreground fg
+           $ defaultLayout1
