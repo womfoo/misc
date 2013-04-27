@@ -84,8 +84,9 @@ main = do
           dedup' (x:[]) = [x]
           dedup' xs' = [minimum xs'] -- add ", maximum xs" for graphing
   T.writeFile "eremitfx.html" $ toStrict $ renderHtml $ htmlPage prices' $ timestamp $ last prices
-  renderableToPNGFile (chart prices ylogs) 470 200 "eremitfx.png"
-
+  let eremitPlot = plotRates prices "eremit" $ sRGB24read "#7aa6da" -- blue
+      yahooPlot = plotRates ylogs "yahoo" $ sRGB24read "#e78c45" --orange
+  renderableToPNGFile (chart [eremitPlot,yahooPlot]) 470 200 "eremitfx.png"
 
 htmlPage (x:xs) updatetime = [shamlet|
   <html>
@@ -152,24 +153,9 @@ pair2Html isFirst (prev,curr) updatetime = [shamlet|$newline never
     time = showTime timeFormat (timestamp curr)
     pctsign = [chr 37]
 
-chart :: [Rate] -> [Rate] -> Renderable ()
-chart lrate rrate = toRenderable layout
+chart :: [Plot LocalTime Double] -> Renderable ()
+chart plots = toRenderable layout
   where
-
-    lineStyle c = line_width ^= 2
-                $ line_color ^= c
-                $ defaultPlotLines ^. plot_lines_style
-
-    price1 = plot_lines_style ^= lineStyle (opaque (sRGB24read "#7aa6da")) -- blue
-           $ plot_lines_values ^= [[ (utcToLocalTime tzMYT u, a) | Rate u _ a <- lrate]]
-           $ plot_lines_title ^= "eremit"
-           $ defaultPlotLines
-
-    price2 = plot_lines_style ^= lineStyle (opaque (sRGB24read "#e78c45")) --orange
-           $ plot_lines_values ^= [[ (utcToLocalTime tzMYT u, a) | Rate u _ a <- rrate]]
-           $ plot_lines_title ^= "yahoo"
-           $ defaultPlotLines
-
     bg = transparent
     fg = opaque white
     fg1 = opaque black
@@ -177,7 +163,17 @@ chart lrate rrate = toRenderable layout
     layout = layout1_background ^= solidFillStyle bg
            $ updateAllAxesStyles (axis_grid_style ^= solidLine 1 fg1)
            $ layout1_bottom_axis ^: laxis_override ^= axisGridHide
- 	   $ layout1_plots ^= [Left (toPlot price1), Left (toPlot price2)]
+ 	   $ layout1_plots ^= [ Left x | x <- plots]
            $ layout1_grid_last ^= False
            $ setLayout1Foreground fg
            $ defaultLayout1
+
+lineStyle c = line_width ^= 2
+            $ line_color ^= c
+            $ defaultPlotLines ^. plot_lines_style
+
+plotRates rates label color
+  = toPlot $ plot_lines_style ^= lineStyle (opaque color)
+  $ plot_lines_values ^= [[ (utcToLocalTime tzMYT u, a) | Rate u _ a <- rates]]
+  $ plot_lines_title ^= label
+  $ defaultPlotLines
