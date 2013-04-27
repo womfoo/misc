@@ -68,8 +68,9 @@ fxLine = do
 
 readRates f = fmap (rights . map (parseOnly fxLine) . T.lines) (T.readFile f)
 
-eremitlog = "/home/eremit/eremit_rates.txt"
-yahoolog  = "/home/eremit/yahoo_myrphp_rates.txt"
+datadir = "/home/eremit/"
+eremitlog = datadir ++ "eremit_rates.txt"
+yahoolog  = datadir ++ "yahoo_myrphp_rates.txt"
 
 main = do
   elogs <-readRates eremitlog
@@ -83,10 +84,10 @@ main = do
           groupedlist = groupBy eqRate xs
           dedup' (x:[]) = [x]
           dedup' xs' = [minimum xs'] -- add ", maximum xs" for graphing
-  T.writeFile "eremitfx.html" $ toStrict $ renderHtml $ htmlPage prices' $ timestamp $ last prices
+  T.writeFile (datadir ++ "eremitfx.html") $ toStrict $ renderHtml $ htmlPage prices' $ timestamp $ last prices
   let eremitPlot = plotRates prices "eremit" $ sRGB24read "#7aa6da" -- blue
       yahooPlot = plotRates ylogs "yahoo" $ sRGB24read "#e78c45" --orange
-  renderableToPNGFile (chart [eremitPlot,yahooPlot]) 470 200 "eremitfx.png"
+  renderableToPNGFile (chart [eremitPlot,yahooPlot]) 470 200 $ datadir ++ "eremitfx.png"
 
 htmlPage (x:xs) updatetime = [shamlet|
   <html>
@@ -159,7 +160,6 @@ chart plots = toRenderable layout
     bg = transparent
     fg = opaque white
     fg1 = opaque black
-
     layout = layout1_background ^= solidFillStyle bg
            $ updateAllAxesStyles (axis_grid_style ^= solidLine 1 fg1)
            $ layout1_bottom_axis ^: laxis_override ^= axisGridHide
