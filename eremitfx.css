@@ -1,4 +1,5 @@
 body {
+    padding: 5px;
     color: #eaeaea;
     background-color: #000000;
     font-family: "Helvetica Neue",Helvetica,Arial,sans-serif;
@@ -39,6 +40,10 @@ body {
     display: inline-block;
     vertical-align: center;
 }
+.chart {
+    width: 100%;
+    max-width: 600px;
+}
 .currprice {
     font-size: xx-large;
     font-weight: bold;
@@ -52,9 +57,11 @@ body {
     display: inline-block;
 }
 td {
+    font-size: large;
     padding: 5px;
 }
 table {
+    width: 100%;
     border-collapse: collapse;
     border-width: 0;
 }

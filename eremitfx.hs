@@ -87,7 +87,7 @@ main = do
   T.writeFile (datadir ++ "eremitfx.html") $ toStrict $ renderHtml $ htmlPage prices' $ timestamp $ last prices
   let eremitPlot = plotRates prices "eremit" $ sRGB24read "#7aa6da" -- blue
       yahooPlot = plotRates ylogs "yahoo" $ sRGB24read "#e78c45" --orange
-  renderableToPNGFile (chart [eremitPlot,yahooPlot]) 470 200 $ datadir ++ "eremitfx.png"
+  renderableToPNGFile (chart [eremitPlot,yahooPlot]) 600 256 $ datadir ++ "eremitfx.png"
 
 htmlPage (x:xs) updatetime = [shamlet|
   <html>
@@ -125,7 +125,7 @@ pair2Html isFirst (prev,curr) updatetime = [shamlet|$newline never
           <div class="#{color}">&nbsp;#{text}
         <div>
            <small>since #{timestamp curr} &bull; updated #{updatetime}
-        <div><img src="eremitfx.png">
+        <div><img class="chart" src="eremitfx.png">
   $else
     <tr>
       <td><strong>#{val}
