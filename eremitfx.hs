@@ -41,6 +41,9 @@ currencyParser = string "BDT" *> pure BDT
 instance H.ToMarkup UTCTime where
   toMarkup = H.toHtml . formatTime defaultTimeLocale dayTimeFormat . utcToLocalTime tzMYT
 
+instance H.ToMarkup Currency where
+  toMarkup = H.toHtml . show
+
 instance H.ToMarkup Rate where
   toMarkup = H.toHtml . show
 
@@ -72,35 +75,62 @@ datadir = "/home/eremit/"
 eremitlog = datadir ++ "eremit_rates.txt"
 yahoolog  = datadir ++ "yahoo_myrphp_rates.txt"
 
+colorBlue = sRGB24read "#7aa6da"
+colorOrange = sRGB24read "#e78c45"
+
+getTripleCurrency ((((rate:_),_,_):_)) = Just $ currency rate
+getTripleCurrency _                    = Nothing
+
 main = do
   elogs <-readRates eremitlog
   ylogs <-readRates yahoolog
-  let prices = filter isPHP elogs
-      prices' = reverse $ list2Pairs $ dedup prices
-      isPHP x = currency x == PHP
-      eqRate x y = amount x == amount y
-      dedup xs = concatMap dedup' groupedlist
-        where
-          groupedlist = groupBy eqRate xs
-          dedup' (x:[]) = [x]
-          dedup' xs' = [minimum xs'] -- add ", maximum xs" for graphing
-  T.writeFile (datadir ++ "eremitfx.html") $ toStrict $ renderHtml $ htmlPage prices' $ timestamp $ last prices
-  let eremitPlot = plotRates prices "eremit" $ sRGB24read "#7aa6da" -- blue
-      yahooPlot = plotRates ylogs "yahoo" $ sRGB24read "#e78c45" --orange
-  renderableToPNGFile (chart [eremitPlot,yahooPlot]) 600 256 $ datadir ++ "eremitfx.png"
+  let groupedCurrencies = (groupByCurrency . sortByCurrency) elogs
+      groupByCurrency = groupBy (\x y -> currency x == currency y)
+      sortByCurrency = sortBy (\x y -> compare (currency x) (currency y))
+      yahooChartData = (ylogs,"yahoo",colorOrange)
+      eremitChartData = (map (\rates -> [(rates,"eremit",colorBlue)]) groupedCurrencies)
+      allChartData = map (\cdata -> cdata ++ (auxData cdata)) eremitChartData
+      auxData x = case (getTripleCurrency x) of
+        Just PHP -> [yahooChartData]
+        _        -> []
+  T.writeFile (datadir ++ "eremitfx.html") $ toStrict $ renderHtml $ htmlPage groupedCurrencies
+  mapM_ renderChart allChartData
 
-htmlPage (x:xs) updatetime = [shamlet|
+htmlPage xs = [shamlet|
   <html>
     <head>
       <link rel="stylesheet" href="eremitfx.css" type="text/css" />
     <body>
       <div>
-        <table>
-          #{pair2Html True x updatetime}
-          $forall x' <- xs
-            #{pair2Html False x' updatetime}
+        $if null xs
+          error: null invalid in htmlPage
+        $else
+          $forall x <- xs
+            #{chartTable x}
         |]
-htmlPage _ _ = H.toHtml ("invalid input" :: String)
+
+chartTable rates = [shamlet|
+  $if null rates
+    error: null invalid in htmlPage      
+  $else
+    <table>
+      #{pair2Html True headrate updatetime}
+      $forall rate <- restrates
+        #{pair2Html False rate updatetime}
+    <br>
+  |]
+  where
+    (headrate:restrates) = (reverse . list2Pairs . concatMap dedup . groupByAmount) rates
+    groupByAmount = groupBy (\x y -> amount x == amount y)
+    dedup (x:[]) = [x]
+    dedup xs = [minimum xs] -- add ", maximum xs" for graphing
+    updatetime = timestamp $ last rates
+
+renderChart rates = do
+  let plots = map (\(rates,name,color) -> plotRates rates name color) rates
+  case (getTripleCurrency rates) of
+    (Just curr') -> renderableToSVGFile (chart plots) 1280 300 ( datadir ++ show curr' ++ ".svg")
+    _            -> putStrLn "invalid data in renderChart"
 
 list2Pairs list = if length list == 1
                     then []
@@ -116,7 +146,7 @@ pair2Html isFirst (prev,curr) updatetime = [shamlet|$newline never
     <tr>
       <td colspan=4>
         <div class="currprice">
-          <strong>MYR = PHP&nbsp;
+          <strong>MYR = #{displayCurrency}&nbsp;
           #{amount curr}&nbsp;
           $if positive
             <div class="big-arrow-up">
@@ -125,10 +155,10 @@ pair2Html isFirst (prev,curr) updatetime = [shamlet|$newline never
           <div class="#{color}">&nbsp;#{text}
         <div>
            <small>since #{timestamp curr} &bull; updated #{updatetime}
-        <div><img class="chart" src="eremitfx.png">
+        <div><img class="chart" src="#{displayCurrency}.svg">
   $else
     <tr>
-      <td><strong>#{val}
+      <td><strong>#{displayCurrency} #{val}
       <td>
         $if positive
           <div class="arrow-up">
@@ -139,6 +169,7 @@ pair2Html isFirst (prev,curr) updatetime = [shamlet|$newline never
       <td>#{time}
     |]
   where
+    displayCurrency = currency prev
     positive = delta' > 0
     val :: String
     val = printf "%.2f" (amount curr)
