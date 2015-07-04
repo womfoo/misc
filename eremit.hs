@@ -9,6 +9,7 @@ import Data.Text.Encoding
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
 import Network.HTTP.Conduit
+import System.Environment (getArgs)
 import Text.HTML.DOM as HTML
 import Text.XML.Cursor
 import Text.XML.Scraping (innerText)
@@ -35,6 +36,7 @@ currPair = do
   return (curr,amount)
 
 main = do
+  (outfile:_) <- getArgs
   request <- parseUrl "http://www.eremit.com.my/rates"
   (date,bs) <- withManager $ \manager -> do
     response <- httpLbs request manager
@@ -43,11 +45,11 @@ main = do
       dropCommas = T.filter (/= ',')
       rawrates = queryT [jq| #exchange > div > font |] doc
       rates = rights $ Prelude.map (parseOnly currPair . dropCommas . toStrict . innerText) rawrates
-  writeRates date rates
+  writeRates outfile date rates
 
-writeRates (Just d) xs =
+writeRates file (Just d) xs =
   mapM_ (\(c,f) ->
-          T.appendFile "/home/eremit/eremit_rates.txt"
+          T.appendFile file
           (toStrict (format "[{}] {}: {}\n" (decodeUtf8 d,show c,f)))
         ) xs
-writeRates _ _ = return ()
+writeRates _ _ _ = return ()
